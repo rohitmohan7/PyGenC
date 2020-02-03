@@ -420,6 +420,10 @@ constdef = []
 
 lines = df.readlines()
 for line in lines:
+  
+  if "nullptr" in line:
+      line = line.replace("nullptr", "NULL")
+
   if "//" in line:
       continue
 
