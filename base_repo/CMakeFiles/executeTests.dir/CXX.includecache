@@ -1,0 +1,28 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/mnt/d/PyGenC/base_repo/includes/MyString.h
+string.h
+-
+
+/mnt/d/PyGenC/base_repo/src/MyString.cpp
+../includes/MyString.h
+/mnt/d/PyGenC/base_repo/includes/MyString.h
+
+/mnt/d/PyGenC/base_repo/tests/MyString_test.cpp
+../includes/MyString.h
+/mnt/d/PyGenC/base_repo/includes/MyString.h
+gtest/gtest.h
+-
+
+/mnt/d/PyGenC/base_repo/tests/test_main.cpp
+../includes/MyString.h
+/mnt/d/PyGenC/base_repo/includes/MyString.h
+gtest/gtest.h
+-
+

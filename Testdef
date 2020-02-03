@@ -1,7 +1,7 @@
 TEST(MyString, DefaultConstructor) {
   MyString s;
   EXPECT_STREQ(nullptr, s.c_string());
-  EXPECT_EQ(0u, s.Length());
+  EXPECT_EQ(0, s.Length());
 }
 
 const char kHelloString[] = "Hello, world!";
@@ -10,7 +10,8 @@ const char kHelloString[] = "Hello, world!";
 TEST(MyString, ConstructorFromCString) {
   MyString s(kHelloString);
   EXPECT_EQ(0, strcmp(s.c_string(), kHelloString));
-  EXPECT_EQ(sizeof(kHelloString)/sizeof(kHelloString[0]) - 1,s.Length());
+  EXPECT_EQ(sizeof(kHelloString)/sizeof(kHelloString[0]) - 1,
+            s.Length());
 }
 
 // Tests the copy c'tor.

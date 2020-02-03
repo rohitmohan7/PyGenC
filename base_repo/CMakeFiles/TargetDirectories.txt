@@ -1,0 +1,3 @@
+/mnt/d/PyGenC/base_repo/CMakeFiles/edit_cache.dir
+/mnt/d/PyGenC/base_repo/CMakeFiles/rebuild_cache.dir
+/mnt/d/PyGenC/base_repo/CMakeFiles/executeTests.dir
