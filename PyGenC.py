@@ -1,23 +1,36 @@
+
 import sys
 import subprocess
 import os
 import re
 import shutil
+import random
+import threading
+import tempfile
+import regex
 
 memprfx = ""
 memsfx = "_"
+maxexonlength = 100
+sex = False
+charlist = ' -+&\\/|!=()\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+mutation_rate = 0.02
+max_noncompile_gen = 3
+
 # represents a gene function
 class exon(object):
 
     def __init__(self, name):
         self.name = name
         self.introns = []
+        self.sub_exons = [] # if present must be istantiated or used via static i.e. 'gene::' or 'gene.' 
         self.expression = ""
         self.testdef = ""
         self.get = None # defines exon direct intron get
         self.defaultget = ""
         self.set = [] # defines exon direct intron sets
         self.public = False
+        self.definition = ""
 
 class intron(object):
 
@@ -37,6 +50,28 @@ class gene(object):
         self.introns = []
         self.includes = []
         self.constdef = []
+
+def get_fitness(g, line):
+
+    score = 0
+    for e in g.exons:
+
+        if e.name + "(" in line:
+            score += 1
+        if e.name in line:
+            score += 1
+        if e.expression in line:
+            score += 1
+
+    for i in g.introns:
+        if i.name+" = " in line:
+            score += 1
+        if i.name in line:
+            score += 1
+        if i.type in line:
+            score += 1
+            
+    return score
 
 def addexon(g, line):
 
@@ -94,6 +129,7 @@ def create_cmakelists(genes, path):
 
     print("generating cmakelists... ")
     CodeString = "cmake_minimum_required(VERSION 2.6)\n\n"
+    CodeString += "set(CMAKE_CXX_FLAGS \"${CMAKE_CXX_FLAGS} -std=c++11\")\n"
     CodeString += "# Locate GTest\n"
     CodeString += "find_package(GTest REQUIRED)\n"
     CodeString += "include_directories(${GTEST_INCLUDE_DIRS})\n\n"
@@ -146,15 +182,40 @@ def create_test(g, path):
     cfile.write(CodeString)
     cfile.close()
 
-def create_cpp(g, path):
+def gen_mutation(g):
 
+    while True:
+        line = ""
+        
+        charlength = random.randint(1, maxexonlength)
+        index = 0
+
+        while index < charlength:
+            line += random.choice(charlist)
+            index = index + 1
+        line += ";"
+        # try to filter invalid syntax here as much as possible
+        if line.count("(") != line.count(")") or line[-1] != ";" or line.count('"') % 2 != 0 or line.count("{") != line.count("}") or ("=" in line and not " = " in line):
+          #  print("Mutation Failed retrying ", line)
+            continue
+        else:
+            print("Mutation Successful, inserting ", line)
+            break
+
+    return line
+
+def create_cpp(g, path, mutate):
+
+    fitness = 0
     print("generating cpp... ", g.name +(".cpp"))
     CodeString = "\n/**************** Auto Generated File **********************/\n\n"
 
     #include header
     CodeString += "#include \"../includes/" +g.name+".h\"\n\n"
     
-    #define Codons?
+    #define Codons
+    if mutate:
+        CodeString += "#define GENE_START_CODON\n#define GENE_STOP_CODON\n"
 
     # define constructors first
     for e in g.exons:
@@ -195,21 +256,21 @@ def create_cpp(g, path):
                                 break
                 else:
                      if "const char *" in s.type:
-                        
-                        CodeString += "  if ("+s.name+")\n  {\n"
-                        CodeString += "    const size_t len = strlen("+s.name + ");\n"
-                        CodeString += "    char* const clone = new char[len + 1];\n"
-                        CodeString += "    memcpy(clone, "+s.name+", len + 1);\n"
-                        CodeString += "\n    if ("+memprfx + s.name + memsfx +" != NULL)\n    {\n"
-                        CodeString += "      delete[] "+memprfx + s.name + memsfx + ";\n    }\n\n"
-                        CodeString += "    "+memprfx + s.name + memsfx +" = clone;\n" 
-                        CodeString += "  }\n  else\n  {\n"
-                        CodeString += "    delete[] "+memprfx + s.name + memsfx + ";\n"
-                        CodeString += "    "+memprfx + s.name + memsfx + " = NULL;\n  }\n"
+                        print("nothing")
+                        #CodeString += "  if ("+s.name+")\n  {\n"
+                        #CodeString += "    const size_t len = strlen("+s.name + ");\n"
+                        #CodeString += "    char* const clone = new char[len + 1];\n"
+                        #CodeString += "    memcpy(clone, "+s.name+", len + 1);\n"
+                        #CodeString += "\n    if ("+memprfx + s.name + memsfx +" != NULL)\n    {\n"
+                        #CodeString += "      delete[] "+memprfx + s.name + memsfx + ";\n    }\n\n"
+                        #CodeString += "    "+memprfx + s.name + memsfx +" = clone;\n" 
+                        #CodeString += "  }\n  else\n  {\n"
+                        #CodeString += "    delete[] "+memprfx + s.name + memsfx + ";\n"
+                        #CodeString += "    "+memprfx + s.name + memsfx + " = NULL;\n  }\n"
 
                         #add to includes 
-                        if not "string" in g.includes:
-                            g.includes.append("string")
+                        #if not "string" in g.includes:
+                        #    g.includes.append("string")
 
             if e.get:
 
@@ -218,11 +279,21 @@ def create_cpp(g, path):
                         # check return type to return member here within all C++ rules and make a sensible conversion
                         if e.expression in i.type:
                             CodeString += "   return "+memprfx+e.get.name+memsfx+";\n"
-                        elif "int" in e.expression and "const char *" in i.type: # send length
-                            CodeString += "   if(!"+memprfx+i.name+memsfx+")\n    return "+e.defaultget+";\n"
-                            CodeString += "   return strlen("+memprfx+i.name+memsfx+");\n"
-                            if not "string" in g.includes:
-                                g.includes.append("string")
+                        elif mutate:
+                            CodeString += "GENE_START_CODON\n"
+                            # add random mutation 
+                            mutation = gen_mutation(g)
+                            
+                            fitness += get_fitness(g, line)
+                            CodeString += mutation
+                            
+                            CodeString += "\nGENE_STOP_CODON\n"
+
+                        #elif "int" in e.expression and "const char *" in i.type: # send length
+                            #CodeString += "   if(!"+memprfx+i.name+memsfx+")\n    return "+e.defaultget+";\n"
+                            #CodeString += "   return strlen("+memprfx+i.name+memsfx+");\n"
+                        #    if not "string" in g.includes:
+                        #        g.includes.append("string")
                         break
 
             # define copy constructor
@@ -254,7 +325,7 @@ def create_cpp(g, path):
     cfile = open(path+"/src/"+ g.name + ".cpp", 'w')
     cfile.write(CodeString)
     cfile.close()
-    return
+    return fitness
 
 def create_intron(v, constdef, exon_arg, curr_gene, curr_exon):
     if "\"" not in v and not v.isdigit() and not re.match(r'^-?\d+(?:\.\d+)?$', v):           
@@ -344,7 +415,7 @@ def create_header(g, path):
 
     for i in g.introns:
         if i.public:
-            CodeString += i.type +memprfx+i.name+memsfx + ";\n";
+            CodeString += i.type +memprfx+i.name+memsfx + ";\n"
 
     # generate public function defenitions
 
@@ -371,9 +442,9 @@ def create_header(g, path):
             if i != e.introns[-1]:
                 CodeString += ", "
 
-        CodeString += ")";
+        CodeString += ")"
         # constructor member intialization in cpp
-        CodeString += ";\n";
+        CodeString += ";\n"
 
         #check for deconstructor for copy constructor, need to check if virtualization is needed!
         if e.name == g.name and len(e.introns)==1 and g.name+"& " in e.introns[0].type:
@@ -383,7 +454,7 @@ def create_header(g, path):
     CodeString += "private:\n"
     for i in g.introns:
         if not i.public:
-            CodeString += "  "+i.type +memprfx+i.name+memsfx + ";\n";
+            CodeString += "  "+i.type +memprfx+i.name+memsfx + ";\n"
 
     for e in g.exons:
         if e.name == g.name:
@@ -421,8 +492,8 @@ constdef = []
 lines = df.readlines()
 for line in lines:
   
-  if "nullptr" in line:
-      line = line.replace("nullptr", "NULL")
+ # if "nullptr" in line:
+ #     line = line.replace("nullptr", "NULL")
 
   if "//" in line:
       continue
@@ -618,41 +689,679 @@ for line in lines:
 if os.path.exists(os.path.dirname("./base_repo/")):
     shutil.rmtree("base_repo")
 
-for g in genes:
+def gen_genes(genes, path, mutate):
+    fitness = 0
+    for g in genes:
 
-    # construct base repo dir
-    construct_repo_dir("base_repo")
+        # construct base repo dir
+        construct_repo_dir(path)
 
-    # create definitions
-    create_cpp(g, "./base_repo")
-    create_header(g, "./base_repo")
-    create_test(g, "./base_repo")
+        # create definitions
+        fitness += create_cpp(g, "./"+path, mutate)
+        create_header(g, "./"+path)
+        create_test(g, "./"+path)
+    return fitness
+
+gen_genes(genes, "base_repo", False)
         
 if not os.path.exists(os.path.dirname("./base_repo/")):
     print("Failed to create base_repo, check Testdef")
     exit()
-print("compiling base_repo")
+
+def compile_repo(path, genes):
+    print("compiling "+path)
+    create_testmain(genes, "./" + path)
+    create_cmakelists(genes, "./" + path)
+    
+    #cmakeCmd = ["cmake", path+"/CMakeLists.txt"]
+    os.system("cmake "+path+"/CMakeLists.txt")
+    #retCode = subprocess.check_call(cmakeCmd)
+    os.system("make -C "+path)
+    #cmakeCmd = ["make", "-C", path]
+    #retCode = subprocess.check_call(cmakeCmd)
+
+    print("compiled"+ path)
+
 try:
-    create_testmain(genes, "./base_repo")
-    create_cmakelists(genes, "./base_repo")
-    
-    cmakeCmd = ["cmake", "base_repo/CMakeLists.txt"]
-    retCode = subprocess.check_call(cmakeCmd)
-    
-    cmakeCmd = ["make", "-C", "base_repo"]
-    retCode = subprocess.check_call(cmakeCmd)
-
-    print("compiled base_repo........executing tests")
-
+    compile_repo("base_repo", genes)
 except subprocess.CalledProcessError:
     print("failed to compile base_repo")
     exit()
 except OSError:
     print("failed to compile base_repo")
     exit()
-    # create defenition for constructor 
-cmakeCmd = ["./base_repo/executeTests"]
-retCode = subprocess.check_call(cmakeCmd)
+    # create defenition for constructor
+
+print("generating population!")
+
+if os.path.exists(os.path.dirname("./population/")):
+    shutil.rmtree("population")
+
+os.makedirs(os.path.dirname("./population/"))
+
+index_occupied = []
+
+class mutant(object):
+    def __init__(self, name, fitness, genes):
+        self.name = name
+        self.fitness = fitness
+        self.genes = genes
+
+class Population(object):
+
+    def __init__(self, max):
+        self.lock = threading.Lock()
+        self.max = max
+        self.mutants = []
+
+    def limit(self):
+       # logging.debug('Waiting for lock')
+        self.lock.acquire()
+        ret = True
+        try:
+        #    logging.debug('Acquired lock')
+            ret = threading.active_count() >= self.max
+        finally:
+            self.lock.release()
+            return ret
+
+    def half_limit(self):
+       # logging.debug('Waiting for lock')
+        self.lock.acquire()
+        ret = True
+        try:
+        #    logging.debug('Acquired lock')
+            ret = threading.active_count() >= (self.max/2)
+        finally:
+            self.lock.release()
+            return ret
+
+    def extinct(self):
+       # logging.debug('Waiting for lock')
+        self.lock.acquire()
+        ret = True
+        try:
+        #    logging.debug('Acquired lock')
+            ret = len(self.mutants)==0
+        finally:
+            self.lock.release()
+            return ret
+
+    def add_mutant(self, m, fitness, genes):
+       # logging.debug('Waiting for lock')
+        self.lock.acquire()
+        try:
+        #    logging.debug('Acquired lock')
+            self.mutants.append(mutant(m, fitness, genes))
+        finally:
+            self.lock.release()
+
+    def remove_mutant(self, name):
+      # logging.debug('Waiting for lock')
+       self.lock.acquire()
+       try:
+       #    logging.debug('Acquired lock')
+           for m in self.mutants:
+               if m.name == name:
+                    self.mutants.remove(m)
+                    break
+
+       finally:
+           self.lock.release()
+
+    def lfitness_mutant(self):
+      # logging.debug('Waiting for lock')
+       
+       self.lock.acquire()
+       try:
+       #    logging.debug('Acquired lock')
+            if len(self.mutants) > 0:
+                lfitness = self.mutants[0].score
+                for m in self.mutants:
+                    if m.score <= lfitness:
+                         lfitness = m.score
+                         name = m.name
+            else:
+                name = ""
+
+       finally:
+           self.lock.release()
+           return name
+
+p = Population(10)
+
+def clone_repo(path):
+    print("cloning repo....")
+    shutil.copytree(path, path+"_1")
+
+#TBD change 
+def mutate_src(path, genes):
+
+    score = 0
+    for filename in os.listdir(path+"/src/"):
+        df = open(path+"/src/"+filename)
+        lines = df.readlines()
+        CodeString = ""
+        isgene = False
+        for line in lines:
+
+            if isgene:
+
+                while True:
+                    mutation = ""
+                    for c in line:
+                        if not "GENE_STOP_CODON" in line and random.uniform(0, 1) > 1-mutation_rate:
+                            #mutate char
+                            mutation += random.choice(charlist)
+                        else:
+                            mutation += c
+                    mutation += ";"
+
+            
+                    # check if mutant is unreadable 
+                    line = mutation
+                    if line.count("(") != line.count(")") or line[-1] != ";" or line.count('"') % 2 != 0 or line.count("{") != line.count("}") or ("=" in line and not " = " in line):
+                       continue
+                    break
+                #calculate fitnesse
+                  #TBD modify
+                for g in genes:
+                    if g.name in filename:
+                        score += get_fitness(g, mutation)
+                        break          
+
+            if "GENE_START_CODON" in line and not "#define GENE_START_CODON" in line:
+                isgene = True
+            if "GENE_STOP_CODON" in line and not "#define GENE_STOP_CODON" in line:
+                isgene = False
+
+            CodeString += line
+        df.close()
+       #if os.path.exists(os.path.dirname(path+"/src/"+filename)):
+       #    shutil.rmtree(os.path.dirname(path+"/src/"+filename))
+        #rewrite file with mutation
+        cfile = open(path+"/src/"+filename,'w')
+        cfile.write(CodeString)
+        cfile.close()
+
+    return score
+
+def individual(path, fitness, genes):
+    # count the generations 
+    random.seed()
+    p.add_mutant(path, fitness, genes)
+    while True:
+        # split source into two and mutate source 
+        if not sex:
+            # emulating haploid binary fission
+            while p.limit():
+                print(p.lfitness_mutant())
+                if p.lfitness_mutant()==path:
+                    p.remove_mutant(path)
+                    shutil.rmtree(path)
+                    print("mutation killied from competition..."+ path)
+                    return
+                continue
+
+            clone_repo(path)
+            fitness = mutate_src(path+"_1", genes)
+            t = threading.Thread(name=path+"_1", target=individual, args=(path+"_1", fitness, genes,))
+            t.start()
+            
+        else: # generate gametes for meiosis 
+            print("TBD define sex")
+
+        try:
+
+            print("compiling mutation..........."+ path)
+            compile_repo(path, genes)
+            break
+            #print("skipping compile")
+        except subprocess.CalledProcessError:
+        
+            p.remove_mutant(path)
+            shutil.rmtree(path)
+            print("mutation failed......killing..."+ path)
+      
+        except OSError:
+
+            p.remove_mutant(path)
+            shutil.rmtree(path)
+            print("mutation failed......killing...."+ path)
+
+        break
+
+def resolve_templates(file_text, g):
+
+    #find name and type, i.e. struct, class
+    result = re.search('template[\S\s]*?(?=;)', file_text)
+    
+    val = result.group(0)
+    
+    result = re.search('template[\S\s]*?(?=>)>', val)
+
+    if result == None: # error TBD fix!
+        print("Discarding rest of file unreadable template discovered....")
+        #result = re.search('template[\S\s]*?(?=;)', file_text)
+        #file_text = file_text[result.start() + len(result.group(0))+1:]
+        file_text = ""
+        return file_text
+
+    if "{" in val:
+        val = val[:val.index("{")]
+
+    val = val[len(result.group(0)):]
+    val = val.replace('\n',' ')
+    val = val.lstrip()
+    val = val.rstrip()
+    operval = ""
+
+    result = re.search('template[\S\s]*?(?=<)<([\S\s]*?(?=>))', file_text)
+    args = result.group(1).split(",")
+    # convert to regex extraction ?
+    if 'operator' in val:
+        operval = val[val.index('operator')+len('operator'):]
+        operval = operval[:operval.index('(')]
+        val = val[:val.index('operator')+len('operator')]
+
+    # check what this means ?
+    if '<' in val:
+        val = val[:val.index('<')]
+
+    if '(' in val:
+        val = val[:val.index('(')]
+        
+    if ';' in val:
+        val = val[:val.index(';')]
+
+    print(val)
+
+    name = ""
+    r1 = regex.finditer('\w+$', val)
+    expression = ""
+    for r in r1:
+        name = r.group(0)
+        expression =  val[:val.index(name)]
+        name += operval
+        expression = expression.lstrip()
+        expression = expression.rstrip()
+        break
+    e = exon(name)
+    e.expression = expression
+    print(e.name)
+
+    for a in args:
+        r1 = regex.finditer('\w+$', a)
+        for r in r1:
+            val = r.group(0)
+            # add template intron
+            i = intron('<'+val+'>', a[:a.index(val)], False)
+            e.introns.append(i)
+            break
+
+    # match execution
+    result = re.search('template[\S\s]*?(?=;)', file_text)
+    val = result.group(0)
+    #print(val)
+    if "{" in val:
+        val = val[:val.index("{")]
+
+        file_text = file_text[result.start():]
+        r1 = regex.finditer('{(?:[^{}]+|(?R))*+}', file_text)
+    
+        for r in r1:
+            if len(val) == r.start():
+                e.definition = r.group(0)
+                file_text = file_text[r.start() + len(r.group(0)):]
+            break
+    else:
+        file_text = file_text[result.start() + len(val)+1:]
+
+
+    g.exons.append(e)
+    return file_text
+
+def scan_mutants(line, serached_dir, mutations): 
+
+    if line+"/" in serached_dir:
+        return
+
+    #if "/lib/" in line:
+    #    return
+
+    serached_dir.append(line+"/")
+
+    for filename in os.listdir(line+"/"): 
+        
+        #if filename == "cstring":
+
+        try:
+            include_file = open(line+"/"+filename)
+        except IOError:
+            #scan_mutants(line+"/"+filename, serached_dir, mutations)
+            # do we need to scan recursive?
+            continue
+            #continue
+        g = gene(filename)
+
+        if ".mod" in filename:
+            continue
+
+        #if "omp.h" != filename:
+        #   continue
+
+        print(line+"/"+filename)
+        
+        include_lines = include_file.readlines()
+                            
+        file_text = ""
+        for l in include_lines:
+            file_text += l
+
+        # filter comments 
+        while True:
+            result = re.search('(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*)', file_text)
+            if result:
+                index = result.start()
+                val = result.group(0)
+                file_text = file_text[:index]+file_text[index+len(val):]
+            else:
+                break
+
+        dummylines = file_text
+            #print(file_text)
+            # remove {}
+        prevfiletext= ""
+        while True:
+            result = re.search('\w+[ ]?\(', file_text)
+            
+            if result:
+                v = result.group(0)
+                index = result.start()
+                v = v[:v.index("(")]
+
+                #check for templates
+                result2 = re.search('template[\S\s]*?(?=;)', file_text)
+                if result2 and result2.start() < result.start():
+                   
+                    print("TEMPLATE!")
+                    file_text = resolve_templates(file_text, g)
+                    # rerun check
+                    result = re.search('\w+[ ]?\(', file_text)
+                    result2 = re.search('template[\S\s]*?(?=;)', file_text)
+
+                    if not result: # no more functions check for template
+                       # print(file_text)
+                        while True:
+                            if result2 == None:
+                                break
+
+                            file_text = resolve_templates(file_text, g)
+                            result2 = re.search('template[\S\s]*?(?=;)', file_text)
+                        continue
+                    
+                    v1 = result.group(0)
+                    v1 = v1[:v1.index("(")]
+
+                    if v1 != v:
+                        print("Continuing!")
+                        continue
+
+                    if result and result2 and result2.start() < result.start():
+                        print("Continuing!")
+                        continue
+
+                    index = result.start()
+                    v = v1
+
+
+                prevfiletext = file_text[:index+len(v)+1]
+                file_text = file_text[index:]
+
+                result = re.search(v+'\((.*)\)', file_text)
+                if result:
+                    args = result.group(1)
+                    if ")" in args:
+                        args = args[:args.index(")")]
+                    args = args.split(",")
+                    #val.replace("\n","")
+
+                    if(len(args)==0):
+                       
+                        result = re.search('(.*)'+v+'\(', prevfiletext)
+                        if result:
+                            val = result.group(1)
+                            #if 'constexpr' in val:
+                                #print(dummylines)
+                    else:
+                        
+                        if True:#v=="strlen":
+ 
+                            #print(re.search(v+'\((.*)\)', file_text).start())
+                            result = re.search('(.*)'+v+'\(', prevfiletext)
+                            if result:
+                                val = result.group(1)
+                                #[ ]?[\t]?definehjk
+                                result = re.search('#[ ]?[\t]?define[ ]?[\t]?', val)
+                                if result:
+                                    define = result.group(0)
+                                    if define == val:
+                                        #print("DEFINE!")
+                                        #resolve define
+                                        currregex = '(?<=\\b'+v.strip()+'\\b)[ ]?\(.*\\\\'
+                                        prevregex = '(?<=\\b'+v.strip()+'\\b)[ ]?\('
+                                        while True:
+                                      
+                                            result = re.search(currregex, file_text)
+                                            
+                                            if result and result.start() == len(v):
+                                                val = result.group(0)
+
+                                                if file_text[result.start()+len(val)]!= '\n':
+                                                    #print("NOT FINAL /", val)
+
+                                                   
+                                                    #check if final line for define
+                                                    txt = file_text[result.start()+len(val):]
+                                                    if txt[txt.index('\n')-1] != '\\':
+                                                        
+                                                        result = re.search(prevregex+'.*\n', file_text)
+                                                        val = result.group(0)
+
+                                                        #check to create an exon
+                                                        createexon = True
+                                                        for e in g.exons:
+                                                            if e.name == v.strip():
+                                                                createexon = False
+                                                                break
+
+                                                        if createexon:
+                                                            e = exon(v.strip())
+                                                            e.defenition = val
+                                                            g.exons.append(e)
+
+                                                        # remove chunk from file text
+                                                        file_text = file_text[result.start()+len(val):]
+                                                        break
+
+                                                prevregex = currregex
+                                                currregex += '\n.*\\\\'
+                                                
+                                            else:
+                                                
+                                                if '\n' not in prevregex:
+                                                    prevregex += '.*'
+                                                else:
+                                                    prevregex += '\n.*'
+                                                result = re.search(prevregex, file_text)
+                                                #print(v,filename)
+                                                 # remove chunk from file text
+                                                
+
+                                                #if result == None:
+                                                    #print(prevfiletext)
+                                                #    print(file_text)
+                                                val = result.group(0)
+                                                createexon = True
+                                                for e in g.exons:
+                                                    if e.name == v.strip():
+                                                        createexon = False
+                                                        break
+
+                                                if createexon:
+                                                    e = exon(v.strip())
+                                                    e.defenition = val
+                                                    g.exons.append(e)
+
+                                                file_text = file_text[result.start()+len(val):]
+                                                break
+                                elif ' ' in args[0]:
+                                    result = re.search('(.*)'+v+'\(', prevfiletext)
+                                    val = result.group(0)
+                                    
+                                    createexon = True
+                                    for e in g.exons:
+                                        if e.name == v.strip() and len(args) == len(e.introns):
+                                            createexon = False
+                                            break
+
+                                    if createexon:
+                                        e = exon(v.strip())
+                                    
+                                        # resolve expression
+                                        e.expression = val[:val.index(v)]
+
+                                        #if e.expression.strip() == "": TBD FIX!!
+                                        #    # get prev line 
+                                        #    result = re.search('.*\n(.*)'+v+'\(', prevfiletext)
+                                        #    val = result.group(0)
+                                        #    e.expression = val[:val.index('\n')]
+                                           #
+
+                                        # filter syntax not needed 
+
+                                        if 'inline ' in e.expression:
+                                            e.expression = e.expression[e.expression.index("inline ") + len("inline "):]
+
+                                        if 'constexpr ' in e.expression:
+                                            e.expression = e.expression[e.expression.index("constexpr ") + len("constexpr "):]
+
+                                        if 'extern \"C++\" ' in e.expression:
+                                            e.expression = e.expression[e.expression.index("extern \"C++\" ") + len("extern \"C++\" "):]
+
+                                        if 'extern ' in e.expression:
+                                            e.expression = e.expression[e.expression.index("extern ") + len("extern "):]
+                                        
+                                        for a in args:
+                                            r1 = regex.finditer('\w+$', a)
+                                            for r in r1:
+                                                val = r.group(0)
+                                                i = intron(val, a[:a.index(val)], False)
+                                                e.introns.append(i)
+                                                break
+                                            #
+                                            #print(i.type, i.name)
+
+                                        g.exons.append(e)
+
+                                        #if "__strlen_g" in v:
+                                        #print(v,result.group(0))
+
+                                     # try to match funct def
+                                                
+                                    index = result.start()
+                                    #{((?>[^{}]+|(?R))*)}
+                                    #{(?:[^{}]+|(?R))*+}
+
+                                    r1 = regex.finditer('{(?:[^{}]+|(?R))*+}', file_text)
+                                    result = re.search(v+'\(.*\)\n*\s*\t*?', file_text)
+                                    val = result.group(0)
+                                    for r in r1:
+                                        if r.start() == len(val):
+                                           file_text = file_text[r.start() + len(r.group(0)):]
+                                        break
+                                         
+
+
+                
+               # print(prevfiletext)
+                #if "\n" in prevfiletext:
+                #    prevfiletext = prevfiletext[prevfiletext.rindex("\n"):]
+                if v+'(' in file_text and file_text.index(v+'(') == 0: 
+                    file_text = file_text[len(v+'('):]
+            else:
+                break
+        
+        if len(g.exons) > 0:
+            mutations.append(g)
+
+        include_file.close()
+                    
+# try to generate a gene pool
+include_dir = []
+mutations = []
+for g in genes:
+    print("GENNES ACTIONS")
+    try:
+
+        #cmakeCmd = ["gcc", "-v", "-E", "base_repo/src/"+g.name+".cpp"]
+        cmd = "gcc -v -E base_repo/src/"+g.name+".cpp 2> includes.txt"
+        os.system(cmd)
+        df = open("includes.txt")
+
+        lines = df.readlines()
+        include_file_line = False
+        for line in lines:
+            if "#include \"...\" search starts here:" in line or "#include <...> search starts here" in line:
+                include_file_line = True
+            else:
+                if "End of search list." in line:
+                    break
+                elif include_file_line:
+                    scan_mutants(line.strip(), include_dir, mutations)
+
+
+        df.close()
+        os.remove("includes.txt")
+
+    except subprocess.CalledProcessError:
+        
+        print("gcc call failed")
+        break
+      
+    except OSError:
+
+        print("gcc call failed")
+        break
+
+#for m in mutations:
+    #print(m.name)
+#    for e in m.exons:
+#        if m.name == "cmath":
+#            print(e.expression + e.name + "(")
+
+
+
+# spawn compiling repos and bring them to life with a thread
+index = 0
+
+#while True:
+#        
+#    #generate individual with base mutation
+#    if index < 10:#p.half_limit() != True:
+#        fitness = gen_genes(genes, "population/mutant"+str(index), True)
+#        t = threading.Thread(name="mutant"+str(index), target=individual, args=("population/mutant"+str(index),fitness, genes,))
+#        t.start()
+#        index+=1
+#
+#    if p.extinct():
+#        print("Population Extinct ! ")
+
+
+
+
+    #cmakeCmd = ["./base_repo/executeTests"]
+    #retCode = subprocess.check_call(cmakeCmd)
 #headerfiles = list()
 #cppfiles = list()
 #
@@ -666,7 +1375,7 @@ retCode = subprocess.check_call(cmakeCmd)
 #    # generate include directory
 #    if not os.path.exists(os.path.dirname("./src/include/")):
 #	    os.makedirs(os.path.dirname("./src/include/"))
-#
+# 
 #    # parse the file 
 #    df = open("test/"+filename)
 #    lines = df.readlines()
