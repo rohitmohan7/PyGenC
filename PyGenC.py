@@ -974,7 +974,7 @@ def resolve_templates(file_text, g):
     if ';' in val:
         val = val[:val.index(';')]
 
-    print(val)
+  #  print(val)
 
     name = ""
     r1 = regex.finditer('\w+$', val)
@@ -988,7 +988,7 @@ def resolve_templates(file_text, g):
         break
     e = exon(name)
     e.expression = expression
-    print(e.name)
+  #  print(e.name)
 
     for a in args:
         r1 = regex.finditer('\w+$', a)
@@ -1026,8 +1026,8 @@ def scan_mutants(line, serached_dir, mutations):
     if line+"/" in serached_dir:
         return
 
-    #if "/lib/" in line:
-    #    return
+    if "/lib/" in line:
+        return
 
     serached_dir.append(line+"/")
 
@@ -1047,9 +1047,6 @@ def scan_mutants(line, serached_dir, mutations):
         if ".mod" in filename:
             continue
 
-        #if "omp.h" != filename:
-        #   continue
-
         print(line+"/"+filename)
         
         include_lines = include_file.readlines()
@@ -1068,7 +1065,6 @@ def scan_mutants(line, serached_dir, mutations):
             else:
                 break
 
-        dummylines = file_text
             #print(file_text)
             # remove {}
         prevfiletext= ""
@@ -1084,7 +1080,7 @@ def scan_mutants(line, serached_dir, mutations):
                 result2 = re.search('template[\S\s]*?(?=;)', file_text)
                 if result2 and result2.start() < result.start():
                    
-                    print("TEMPLATE!")
+                   # print("TEMPLATE!")
                     file_text = resolve_templates(file_text, g)
                     # rerun check
                     result = re.search('\w+[ ]?\(', file_text)
@@ -1104,11 +1100,11 @@ def scan_mutants(line, serached_dir, mutations):
                     v1 = v1[:v1.index("(")]
 
                     if v1 != v:
-                        print("Continuing!")
+                       # print("Continuing!")
                         continue
 
                     if result and result2 and result2.start() < result.start():
-                        print("Continuing!")
+                        #print("Continuing!")
                         continue
 
                     index = result.start()
@@ -1216,9 +1212,14 @@ def scan_mutants(line, serached_dir, mutations):
                                                 file_text = file_text[result.start()+len(val):]
                                                 break
                                 elif ' ' in args[0]:
-                                    result = re.search('(.*)'+v+'\(', prevfiletext)
+                                    result = re.search('.*?(?='+v+'\()', prevfiletext)
                                     val = result.group(0)
-                                    
+                           
+                                    if "#" in val:#skip this line
+                                        #print("if! skiping!", file_text)
+                                        file_text = file_text[file_text.index('\n'):]
+                                        continue
+                                     
                                     createexon = True
                                     for e in g.exons:
                                         if e.name == v.strip() and len(args) == len(e.introns):
@@ -1227,30 +1228,34 @@ def scan_mutants(line, serached_dir, mutations):
 
                                     if createexon:
                                         e = exon(v.strip())
-                                    
+                                        val = val.lstrip()
+                                        val = val.rstrip()
                                         # resolve expression
-                                        e.expression = val[:val.index(v)]
-
-                                        #if e.expression.strip() == "": TBD FIX!!
-                                        #    # get prev line 
-                                        #    result = re.search('.*\n(.*)'+v+'\(', prevfiletext)
-                                        #    val = result.group(0)
-                                        #    e.expression = val[:val.index('\n')]
+                                        e.expression = val
+                                            
+                                        if e.expression.strip() == "": #TBD FIX!!
+                                        #    get prev line 
+                                             result = re.search('.*\n.*'+v+'\(', prevfiletext)
+                                       
+                                             val = result.group(0)
+                                             e.expression = val[:val.index('\n')]
+                                             e.expression = e.expression.lstrip()
+                                             e.expression = e.expression.rstrip()
                                            #
 
                                         # filter syntax not needed 
 
-                                        if 'inline ' in e.expression:
-                                            e.expression = e.expression[e.expression.index("inline ") + len("inline "):]
+                                        #if 'inline ' in e.expression:
+                                        #    e.expression = e.expression[e.expression.index("inline ") + len("inline "):]
 
-                                        if 'constexpr ' in e.expression:
-                                            e.expression = e.expression[e.expression.index("constexpr ") + len("constexpr "):]
+                                        #if 'constexpr ' in e.expression:
+                                        #    e.expression = e.expression[e.expression.index("constexpr ") + len("constexpr "):]
 
-                                        if 'extern \"C++\" ' in e.expression:
-                                            e.expression = e.expression[e.expression.index("extern \"C++\" ") + len("extern \"C++\" "):]
+                                        #if 'extern \"C++\" ' in e.expression:
+                                        #    e.expression = e.expression[e.expression.index("extern \"C++\" ") + len("extern \"C++\" "):]
 
-                                        if 'extern ' in e.expression:
-                                            e.expression = e.expression[e.expression.index("extern ") + len("extern "):]
+                                        #if 'extern ' in e.expression:
+                                        #    e.expression = e.expression[e.expression.index("extern ") + len("extern "):]
                                         
                                         for a in args:
                                             r1 = regex.finditer('\w+$', a)
@@ -1281,14 +1286,16 @@ def scan_mutants(line, serached_dir, mutations):
                                            file_text = file_text[r.start() + len(r.group(0)):]
                                         break
                                          
-
-
-                
                # print(prevfiletext)
                 #if "\n" in prevfiletext:
                 #    prevfiletext = prevfiletext[prevfiletext.rindex("\n"):]
                 if v+'(' in file_text and file_text.index(v+'(') == 0: 
-                    file_text = file_text[len(v+'('):]
+                    #check to remove funct header
+                    result = re.search(v+'\(.*;', file_text)
+                    if result:
+                        file_text = file_text[result.start() + len(result.group(0)):]
+                    else:
+                        file_text = file_text[len(v+'('):]
             else:
                 break
         
@@ -1326,19 +1333,25 @@ for g in genes:
 
     except subprocess.CalledProcessError:
         
-        print("gcc call failed")
-        break
+        print("gcc call failed sourcing mutations!")
+        exit()
       
     except OSError:
 
-        print("gcc call failed")
-        break
+        print("gcc call failed sourcing mutations!")
+        exit()
 
-#for m in mutations:
-    #print(m.name)
-#    for e in m.exons:
-#        if m.name == "cmath":
-#            print(e.expression + e.name + "(")
+for m in mutations:
+    print(m.name)
+    for e in m.exons:
+        if e.expression != "":
+            val = e.expression + " "+e.name + "("
+            for i in e.introns:
+                val += i.type + i.name
+                if i != e.introns[-1]:
+                    val += ", "
+            val += ");"
+            print(val)
 
 
 
