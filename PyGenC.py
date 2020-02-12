@@ -38,6 +38,11 @@ class exon(object):
         self.definition = ""
         self.executions = []
 
+    def resolve_executions(self):
+
+        for e in self.executions:
+            e.definition = ""
+
 class intron(object):
 
     def __init__(self, name, type, public):
@@ -62,88 +67,7 @@ class gene(object):
         for e in self.exons:
              
              # reset execution
-            e.definition = ""
-            continue
-            for s in e.set:
-                # check if constructor
-                if e.name == self.name:
-                    #check for another function that may be setting this 
-                    for e2 in g.exons:
-                        set = False
-                        if e2.name != self.name:
-                            for s2 in e2.set:
-                                if s2.name == s.name:
-                                    e.definition += "   "+e2.name+"("+s.name+");\n"
-                                    set = True
-                                    break
-                            if set:
-                                break
-                else:
-                     if "const char *" in s.type:
-                        print("nothing")
-                        #CodeString += "  if ("+s.name+")\n  {\n"
-                        #CodeString += "    const size_t len = strlen("+s.name + ");\n"
-                        #CodeString += "    char* const clone = new char[len + 1];\n"
-                        #CodeString += "    memcpy(clone, "+s.name+", len + 1);\n"
-                        #CodeString += "\n    if ("+memprfx + s.name + memsfx +" != NULL)\n    {\n"
-                        #CodeString += "      delete[] "+memprfx + s.name + memsfx + ";\n    }\n\n"
-                        #CodeString += "    "+memprfx + s.name + memsfx +" = clone;\n" 
-                        #CodeString += "  }\n  else\n  {\n"
-                        #CodeString += "    delete[] "+memprfx + s.name + memsfx + ";\n"
-                        #CodeString += "    "+memprfx + s.name + memsfx + " = NULL;\n  }\n"
-
-                        #add to includes 
-                        #if not "string" in g.includes:
-                        #    g.includes.append("string")
-
-            if e.get:
-
-                for i in self.introns:
-                    if i.name == e.get.name:
-                        # check return type to return member here within all C++ rules and make a sensible conversion
-                        if e.expression in i.type:
-                            e.definition += "   return "+memprfx+e.get.name+memsfx+";\n"
-                        #elif mutate:
-                        #    CodeString += "GENE_START_CODON\n"
-                            # add random mutation 
-                        #    mutation = gen_mutation(g)
-                            
-                          #  fitness += get_fitness(g, line)
-                        #    CodeString += mutation
-                            
-                        #    CodeString += "\nGENE_STOP_CODON\n"
-
-                        #elif "int" in e.expression and "const char *" in i.type: # send length
-                            #CodeString += "   if(!"+memprfx+i.name+memsfx+")\n    return "+e.defaultget+";\n"
-                            #CodeString += "   return strlen("+memprfx+i.name+memsfx+");\n"
-                        #    if not "string" in g.includes:
-                        #        g.includes.append("string")
-                        break
-
-            # define copy constructor
-            if(e.name == self.name and len(e.introns) == 1 and self.name+"& " in e.introns[0].type):            
-                # find a method to copy from rhs all introns
-                for i in self.introns:
-                    method = False
-                    for e2 in self.exons:
-                        if e2.name != g.name:
-                            for s in e2.set:
-                                if s.name == i.name:
-                                    e.definition += "  "+e2.name+"("+e.introns[0].name+"."+memprfx + i.name + memsfx+");\n"
-                                    method = True
-                                    break
-                        if method:
-                            break
-                    if not method:
-                        e.definition += "  " +memprfx + i.name + memsfx+ " = "+e.introns[0].name +"."+memprfx + i.name + memsfx+";\n"
-
-                e.definition += "}\n\n"
-
-                # define deconstructor
-                e.definition += self.name + "::~"+self.name+"()\n{\n"
-                for i in self.introns:
-                    if "*" in i.type:
-                        e.definition += "  delete[] "+memprfx+i.name+memsfx+";\n"
+            e.resolve_executions()
 
 
 
@@ -995,13 +919,12 @@ def resolve_templates(file_text, g):
     
     val = result.group(0)
     
-    result = re.search('template[\S\s]*?(?=>)>', val)
-
+    result = re.search('template[ ]?[\t]?[\n]?<', val)
     if result == None: # error TBD fix!
-        print("Discarding rest of file unreadable template discovered....")
-        #result = re.search('template[\S\s]*?(?=;)', file_text)
-        #file_text = file_text[result.start() + len(result.group(0))+1:]
-        file_text = ""
+        #print("Discarding rest of file unreadable template discovered....")
+        result = re.search('template[\S\s]*?(?=;)', file_text)
+        file_text = file_text[result.start() + len(result.group(0))+1:]
+        #file_text = ""
         return file_text
 
     if "{" in val:
@@ -1108,7 +1031,6 @@ def scan_mutants(line, serached_dir, mutations):
         file_text = ""
         for l in include_lines:
             file_text += l
-
        
         # filter comments 
         while True:
@@ -1196,6 +1118,7 @@ def scan_mutants(line, serached_dir, mutations):
                             result = re.search('(.*)'+v+'\(', prevfiletext)
                             if result:
                                 val = result.group(1)
+
                                 #[ ]?[\t]?definehjk
                                 result = re.search('#[ ]?[\t]?define[ ]?[\t]?', val)
                                 if result:
@@ -1295,7 +1218,6 @@ def scan_mutants(line, serached_dir, mutations):
                                         if e.expression.strip() == "": #TBD FIX!!
                                         #    get prev line 
                                              result = re.search('.*\n.*'+v+'\(', prevfiletext)
-                                       
                                              val = result.group(0)
                                              e.expression = val[:val.index('\n')]
                                              e.expression = e.expression.lstrip()
@@ -1338,12 +1260,14 @@ def scan_mutants(line, serached_dir, mutations):
                                     #{(?:[^{}]+|(?R))*+}
 
                                     r1 = regex.finditer('{(?:[^{}]+|(?R))*+}', file_text)
-                                    result = re.search(v+'\(.*\)\n*\s*\t*?', file_text)
-                                    val = result.group(0)
-                                    for r in r1:
-                                        if r.start() == len(val):
-                                           file_text = file_text[r.start() + len(r.group(0)):]
-                                        break
+                                    result = re.search(v+'[\S\s\n]*?(?=\{)', file_text)
+
+                                    if result:
+                                        val = result.group(0)
+                                        for r in r1:
+                                            if r.start() == len(val):
+                                                file_text = file_text[r.start() + len(r.group(0)):]
+                                            break
                                          
                # print(prevfiletext)
                 #if "\n" in prevfiletext:
@@ -1412,21 +1336,63 @@ for m in mutations:
             val += ");"
             print(val)
 
+def filter_mutations(type, mutations):
+
+    applicable_mutations = []
+    for m in mutations:
+        g = gene(m.name)
+        #check if type can be resolved
+        for e in m.exons:
+
+            # allow exact type matches or all if no exon expression is defined 
+            if type == "" or type == e.expression:
+                g.exons.append(e)
+
+        if len(g.exons)>0:
+            applicable_mutations.append(g)
+
+    return applicable_mutations
+
+# generate base mutations
+def gen_base_mutations(genes, mutations, exon_execution_limit):
+
+    mutant_genes = genes
+    for g in mutant_genes:
+        for e in g.exons:
+            execution_limit = random.randint(0, exon_execution_limit)
+
+            count = 0
+            while count < execution_limit:
+                applicable_mutations = filter_mutations(e.expression, mutations)
+
+                if len(applicable_mutations) == 0:
+                    print("Unable to find mutations for: " + e.name)
+                    exit()
+
+                exe = execution("")
+                e.executions.append(exe)
+                count+=1
+
+    return mutant_genes
 
 
 # spawn compiling repos and bring them to life with a thread
 index = 0
 
-#while True:
-#        
-#    #generate individual with base mutation
-#    if index < 10:#p.half_limit() != True:
+while True:
+        
+    #generate individual with base mutation
+    if index < 1:#p.half_limit() != True:
+         base_genes = gen_base_mutations(genes, mutations, 5)
+         print("Successfully executed base mutations")
 #        fitness = gen_genes(genes, "population/mutant"+str(index), True)
 #        t = threading.Thread(name="mutant"+str(index), target=individual, args=("population/mutant"+str(index),fitness, genes,))
 #        t.start()
-#        index+=1
+         index+=1
+
+    break
 #
-#    if p.extinct():
+#    if p.extinct():c
 #        print("Population Extinct ! ")
 
 
