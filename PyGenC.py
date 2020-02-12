@@ -17,6 +17,11 @@ charlist = ' -+&\\/|!=()\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01
 mutation_rate = 0.02
 max_noncompile_gen = 3
 
+class execution(object):
+    def __init__(self, name):
+        self.intron = None
+        self.exon = None
+
 # represents a gene function
 class exon(object):
 
@@ -31,6 +36,7 @@ class exon(object):
         self.set = [] # defines exon direct intron sets
         self.public = False
         self.definition = ""
+        self.executions = []
 
 class intron(object):
 
@@ -50,6 +56,96 @@ class gene(object):
         self.introns = []
         self.includes = []
         self.constdef = []
+
+    def resolve_exons(self):
+        # build execution string for each exon
+        for e in self.exons:
+             
+             # reset execution
+            e.definition = ""
+            continue
+            for s in e.set:
+                # check if constructor
+                if e.name == self.name:
+                    #check for another function that may be setting this 
+                    for e2 in g.exons:
+                        set = False
+                        if e2.name != self.name:
+                            for s2 in e2.set:
+                                if s2.name == s.name:
+                                    e.definition += "   "+e2.name+"("+s.name+");\n"
+                                    set = True
+                                    break
+                            if set:
+                                break
+                else:
+                     if "const char *" in s.type:
+                        print("nothing")
+                        #CodeString += "  if ("+s.name+")\n  {\n"
+                        #CodeString += "    const size_t len = strlen("+s.name + ");\n"
+                        #CodeString += "    char* const clone = new char[len + 1];\n"
+                        #CodeString += "    memcpy(clone, "+s.name+", len + 1);\n"
+                        #CodeString += "\n    if ("+memprfx + s.name + memsfx +" != NULL)\n    {\n"
+                        #CodeString += "      delete[] "+memprfx + s.name + memsfx + ";\n    }\n\n"
+                        #CodeString += "    "+memprfx + s.name + memsfx +" = clone;\n" 
+                        #CodeString += "  }\n  else\n  {\n"
+                        #CodeString += "    delete[] "+memprfx + s.name + memsfx + ";\n"
+                        #CodeString += "    "+memprfx + s.name + memsfx + " = NULL;\n  }\n"
+
+                        #add to includes 
+                        #if not "string" in g.includes:
+                        #    g.includes.append("string")
+
+            if e.get:
+
+                for i in self.introns:
+                    if i.name == e.get.name:
+                        # check return type to return member here within all C++ rules and make a sensible conversion
+                        if e.expression in i.type:
+                            e.definition += "   return "+memprfx+e.get.name+memsfx+";\n"
+                        #elif mutate:
+                        #    CodeString += "GENE_START_CODON\n"
+                            # add random mutation 
+                        #    mutation = gen_mutation(g)
+                            
+                          #  fitness += get_fitness(g, line)
+                        #    CodeString += mutation
+                            
+                        #    CodeString += "\nGENE_STOP_CODON\n"
+
+                        #elif "int" in e.expression and "const char *" in i.type: # send length
+                            #CodeString += "   if(!"+memprfx+i.name+memsfx+")\n    return "+e.defaultget+";\n"
+                            #CodeString += "   return strlen("+memprfx+i.name+memsfx+");\n"
+                        #    if not "string" in g.includes:
+                        #        g.includes.append("string")
+                        break
+
+            # define copy constructor
+            if(e.name == self.name and len(e.introns) == 1 and self.name+"& " in e.introns[0].type):            
+                # find a method to copy from rhs all introns
+                for i in self.introns:
+                    method = False
+                    for e2 in self.exons:
+                        if e2.name != g.name:
+                            for s in e2.set:
+                                if s.name == i.name:
+                                    e.definition += "  "+e2.name+"("+e.introns[0].name+"."+memprfx + i.name + memsfx+");\n"
+                                    method = True
+                                    break
+                        if method:
+                            break
+                    if not method:
+                        e.definition += "  " +memprfx + i.name + memsfx+ " = "+e.introns[0].name +"."+memprfx + i.name + memsfx+";\n"
+
+                e.definition += "}\n\n"
+
+                # define deconstructor
+                e.definition += self.name + "::~"+self.name+"()\n{\n"
+                for i in self.introns:
+                    if "*" in i.type:
+                        e.definition += "  delete[] "+memprfx+i.name+memsfx+";\n"
+
+
 
 def get_fitness(g, line):
 
@@ -204,7 +300,7 @@ def gen_mutation(g):
 
     return line
 
-def create_cpp(g, path, mutate):
+def create_cpp(g, path):
 
     fitness = 0
     print("generating cpp... ", g.name +(".cpp"))
@@ -213,10 +309,6 @@ def create_cpp(g, path, mutate):
     #include header
     CodeString += "#include \"../includes/" +g.name+".h\"\n\n"
     
-    #define Codons
-    if mutate:
-        CodeString += "#define GENE_START_CODON\n#define GENE_STOP_CODON\n"
-
     # define constructors first
     for e in g.exons:
             
@@ -240,85 +332,8 @@ def create_cpp(g, path, mutate):
             CodeString += "\n{\n"
 
             #define simple execution (TBD make more complex to accept different classes!)
-            for s in e.set:
-                # check if constructor
-                if e.name == g.name:
-                    #check for another function that may be setting this 
-                    for e2 in g.exons:
-                        set = False
-                        if e2.name != g.name:
-                            for s2 in e2.set:
-                                if s2.name == s.name:
-                                    CodeString += "   "+e2.name+"("+s.name+");\n"
-                                    set = True
-                                    break
-                            if set:
-                                break
-                else:
-                     if "const char *" in s.type:
-                        print("nothing")
-                        #CodeString += "  if ("+s.name+")\n  {\n"
-                        #CodeString += "    const size_t len = strlen("+s.name + ");\n"
-                        #CodeString += "    char* const clone = new char[len + 1];\n"
-                        #CodeString += "    memcpy(clone, "+s.name+", len + 1);\n"
-                        #CodeString += "\n    if ("+memprfx + s.name + memsfx +" != NULL)\n    {\n"
-                        #CodeString += "      delete[] "+memprfx + s.name + memsfx + ";\n    }\n\n"
-                        #CodeString += "    "+memprfx + s.name + memsfx +" = clone;\n" 
-                        #CodeString += "  }\n  else\n  {\n"
-                        #CodeString += "    delete[] "+memprfx + s.name + memsfx + ";\n"
-                        #CodeString += "    "+memprfx + s.name + memsfx + " = NULL;\n  }\n"
-
-                        #add to includes 
-                        #if not "string" in g.includes:
-                        #    g.includes.append("string")
-
-            if e.get:
-
-                for i in g.introns:
-                    if i.name == e.get.name:
-                        # check return type to return member here within all C++ rules and make a sensible conversion
-                        if e.expression in i.type:
-                            CodeString += "   return "+memprfx+e.get.name+memsfx+";\n"
-                        elif mutate:
-                            CodeString += "GENE_START_CODON\n"
-                            # add random mutation 
-                            mutation = gen_mutation(g)
-                            
-                            fitness += get_fitness(g, line)
-                            CodeString += mutation
-                            
-                            CodeString += "\nGENE_STOP_CODON\n"
-
-                        #elif "int" in e.expression and "const char *" in i.type: # send length
-                            #CodeString += "   if(!"+memprfx+i.name+memsfx+")\n    return "+e.defaultget+";\n"
-                            #CodeString += "   return strlen("+memprfx+i.name+memsfx+");\n"
-                        #    if not "string" in g.includes:
-                        #        g.includes.append("string")
-                        break
-
-            # define copy constructor
-            if(e.name == g.name and len(e.introns) == 1 and g.name+"& " in e.introns[0].type):            
-                # find a method to copy from rhs all introns
-                for i in g.introns:
-                    method = False
-                    for e2 in g.exons:
-                        if e2.name != g.name:
-                            for s in e2.set:
-                                if s.name == i.name:
-                                    CodeString += "  "+e2.name+"("+e.introns[0].name+"."+memprfx + i.name + memsfx+");\n"
-                                    method = True
-                                    break
-                        if method:
-                            break
-                    if not method:
-                        CodeString += "  " +memprfx + i.name + memsfx+ " = "+e.introns[0].name +"."+memprfx + i.name + memsfx+";\n"
-                CodeString += "}\n\n"
-
-                # define deconstructor
-                CodeString += g.name + "::~"+g.name+"()\n{\n"
-                for i in g.introns:
-                    if "*" in i.type:
-                        CodeString += "  delete[] "+memprfx+i.name+memsfx+";\n"
+            CodeString += e.definition
+                
 
             CodeString += "}\n\n"
 
@@ -689,20 +704,20 @@ for line in lines:
 if os.path.exists(os.path.dirname("./base_repo/")):
     shutil.rmtree("base_repo")
 
-def gen_genes(genes, path, mutate):
+def gen_genes(genes, path):
     fitness = 0
     for g in genes:
-
+        g.resolve_exons()
         # construct base repo dir
         construct_repo_dir(path)
 
         # create definitions
-        fitness += create_cpp(g, "./"+path, mutate)
+        fitness += create_cpp(g, "./"+path)
         create_header(g, "./"+path)
         create_test(g, "./"+path)
     return fitness
 
-gen_genes(genes, "base_repo", False)
+gen_genes(genes, "base_repo")
         
 if not os.path.exists(os.path.dirname("./base_repo/")):
     print("Failed to create base_repo, check Testdef")
@@ -931,6 +946,48 @@ def individual(path, fitness, genes):
 
         break
 
+def resolve_defines(file_text, g):
+
+    text = file_text
+    while True:
+        result = re.search('#[ ]?[\t]?define[ ]?[\t]?(.*)', text)
+        if result:
+            val = result.group(1)
+
+            if "(" not in val:
+                v = val.split(" ")
+                for v1 in v:
+                    name = v1
+                    type =  val[val.index(v1)+len(v1):]
+                    type = type.lstrip()
+                    type = type.rstrip()
+                    g.introns.append(intron(name, type, False))
+                    break
+            text = text[result.start()+len(val):]
+        else:
+            break
+
+def resolve_typedefs(file_text, g):
+
+    text = file_text
+    while True:
+        result = re.search('typedef(.*);', text)
+        if result:
+            val = result.group(1)
+            r1 = regex.finditer('\w+$', val)
+        
+            for r in r1:
+                name = r.group(0)
+                type =  val[:val.index(name)]
+                type = type.lstrip()
+                type = type.rstrip()
+                g.introns.append(intron(name, type, False))
+                break
+            text = text[result.start()+len('typedef'+val)+1:]
+        else:
+            break
+
+
 def resolve_templates(file_text, g):
 
     #find name and type, i.e. struct, class
@@ -1026,9 +1083,6 @@ def scan_mutants(line, serached_dir, mutations):
     if line+"/" in serached_dir:
         return
 
-    if "/lib/" in line:
-        return
-
     serached_dir.append(line+"/")
 
     for filename in os.listdir(line+"/"): 
@@ -1055,6 +1109,7 @@ def scan_mutants(line, serached_dir, mutations):
         for l in include_lines:
             file_text += l
 
+       
         # filter comments 
         while True:
             result = re.search('(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*)', file_text)
@@ -1064,6 +1119,10 @@ def scan_mutants(line, serached_dir, mutations):
                 file_text = file_text[:index]+file_text[index+len(val):]
             else:
                 break
+
+        resolve_typedefs(file_text, g)
+        resolve_defines(file_text, g)
+
 
             #print(file_text)
             # remove {}
