@@ -1257,9 +1257,7 @@ def scan_mutants(line, serached_dir, mutations):
                                     result2 = re.search(v+'[\S\s\n]*?(?=;)', file_text)
 
                                     if result2 and result2.start()==0:
-                                        if not result or len(result.group(0)) > len(result2.group(0)):     
-                                            if "memcpy" in v:
-                                                print("Success!")                  
+                                        if not result or len(result.group(0)) > len(result2.group(0)):                       
                                             file_text = file_text[len(result2.group(0))+1:]
                                             result = None
 
@@ -1267,8 +1265,6 @@ def scan_mutants(line, serached_dir, mutations):
                                         val = result.group(0)
                                         for r in r1:
                                             if r.start() == len(val):
-                                                if "memcpy" in v:
-                                                    print("ERROR")
                                                 file_text = file_text[r.start() + len(r.group(0)):]
                                             break
 
@@ -1346,11 +1342,11 @@ def resolve_mutations(mutations):
             for m1 in mutations:
                 for i in m1.introns:
                     if "strlen" in e.name:
-                        print("STRLEN!")
+                        k=0#print("STRLEN!")
 
                     if e.expression in i.type:
-                        if "size_t" == i.name:
-                            print("SIZE T !!! ", i.type)
+                        if "__SIZE_TYPE__" == i.name:
+                            print("SIZE T !!! ", i.type, i.name)
                             break
 
     return mutations
