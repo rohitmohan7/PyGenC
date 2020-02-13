@@ -1338,14 +1338,18 @@ def resolve_mutations(mutations):
         # resolve the types
 
     for m in mutations:
+
+        for i in m.introns:
+            for m1 in mutations:
+                for i1 in m1.introns:
+                    if i1.type == i.name:
+                        i1.type = i.type
+
         for e in m.exons:
             for m1 in mutations:
                 for i in m1.introns:
-                    if "strlen" in e.name:
-                        k=0#print("STRLEN!")
-
-                    if e.expression in i.type:
-                        if "__SIZE_TYPE__" == i.name:
+                    if e.expression == i.name:
+                        if "size_t" == i.name:
                             print("SIZE T !!! ", i.type, i.name)
                             break
 
