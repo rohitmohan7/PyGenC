@@ -1024,6 +1024,9 @@ def scan_mutants(line, serached_dir, mutations):
         if ".mod" in filename:
             continue
 
+        #if "string.h" not in filename: #and "stddef.h" not in filename:
+        #    continue
+
         print(line+"/"+filename)
         
         include_lines = include_file.readlines()
@@ -1031,6 +1034,7 @@ def scan_mutants(line, serached_dir, mutations):
         file_text = ""
         for l in include_lines:
             file_text += l
+        
        
         # filter comments 
         while True:
@@ -1041,11 +1045,11 @@ def scan_mutants(line, serached_dir, mutations):
                 file_text = file_text[:index]+file_text[index+len(val):]
             else:
                 break
-
+        
         resolve_typedefs(file_text, g)
         resolve_defines(file_text, g)
 
-
+        
             #print(file_text)
             # remove {}
         prevfiletext= ""
@@ -1095,13 +1099,20 @@ def scan_mutants(line, serached_dir, mutations):
                 prevfiletext = file_text[:index+len(v)+1]
                 file_text = file_text[index:]
 
-                result = re.search(v+'\((.*)\)', file_text)
+                result = re.search(v+'\([\S\s\n]*?(?=\))', file_text)
                 if result:
-                    args = result.group(1)
-                    if ")" in args:
-                        args = args[:args.index(")")]
+                    if result.start() != 0:
+                        print("function argument regex resolution error:", v, filename)
+                        exit()
+
+                    args = result.group(0)
+                    args = args[len(v)+1:]
+                    args = args.replace("\n"," ")
+                    args = args.replace("\t"," ")
                     args = args.split(",")
                     #val.replace("\n","")
+                    arg_o = args[0].lstrip()
+                    arg_o = args[0].rstrip()
 
                     if(len(args)==0):
                        
@@ -1146,17 +1157,9 @@ def scan_mutants(line, serached_dir, mutations):
                                                         result = re.search(prevregex+'.*\n', file_text)
                                                         val = result.group(0)
 
-                                                        #check to create an exon
-                                                        createexon = True
-                                                        for e in g.exons:
-                                                            if e.name == v.strip():
-                                                                createexon = False
-                                                                break
-
-                                                        if createexon:
-                                                            e = exon(v.strip())
-                                                            e.defenition = val
-                                                            g.exons.append(e)
+                                                        e = exon(v.strip())
+                                                        e.defenition = val
+                                                        g.exons.append(e)
 
                                                         # remove chunk from file text
                                                         file_text = file_text[result.start()+len(val):]
@@ -1180,20 +1183,16 @@ def scan_mutants(line, serached_dir, mutations):
                                                     #print(prevfiletext)
                                                 #    print(file_text)
                                                 val = result.group(0)
-                                                createexon = True
-                                                for e in g.exons:
-                                                    if e.name == v.strip():
-                                                        createexon = False
-                                                        break
-
-                                                if createexon:
-                                                    e = exon(v.strip())
-                                                    e.defenition = val
-                                                    g.exons.append(e)
-
+                                                
+                                                e = exon(v.strip())
+                                                e.defenition = val
+                                                g.exons.append(e)
+                                                
                                                 file_text = file_text[result.start()+len(val):]
                                                 break
-                                elif ' ' in args[0]:
+                                elif ' ' in arg_o:
+                                    
+                                    
                                     result = re.search('.*?(?='+v+'\()', prevfiletext)
                                     val = result.group(0)
                            
@@ -1202,26 +1201,19 @@ def scan_mutants(line, serached_dir, mutations):
                                         file_text = file_text[file_text.index('\n'):]
                                         continue
                                      
-                                    createexon = True
-                                    for e in g.exons:
-                                        if e.name == v.strip() and len(args) == len(e.introns):
-                                            createexon = False
-                                            break
-
-                                    if createexon:
-                                        e = exon(v.strip())
-                                        val = val.lstrip()
-                                        val = val.rstrip()
+                                    e = exon(v.strip())
+                                    val = val.lstrip()
+                                    val = val.rstrip()
                                         # resolve expression
-                                        e.expression = val
+                                    e.expression = val
                                             
-                                        if e.expression.strip() == "": #TBD FIX!!
+                                    if e.expression.strip() == "": #TBD FIX!!
                                         #    get prev line 
-                                             result = re.search('.*\n.*'+v+'\(', prevfiletext)
-                                             val = result.group(0)
-                                             e.expression = val[:val.index('\n')]
-                                             e.expression = e.expression.lstrip()
-                                             e.expression = e.expression.rstrip()
+                                        result = re.search('.*\n.*'+v+'\(', prevfiletext)
+                                        val = result.group(0)
+                                        e.expression = val[:val.index('\n')]
+                                        e.expression = e.expression.lstrip()
+                                        e.expression = e.expression.rstrip()
                                            #
 
                                         # filter syntax not needed 
@@ -1238,17 +1230,17 @@ def scan_mutants(line, serached_dir, mutations):
                                         #if 'extern ' in e.expression:
                                         #    e.expression = e.expression[e.expression.index("extern ") + len("extern "):]
                                         
-                                        for a in args:
-                                            r1 = regex.finditer('\w+$', a)
-                                            for r in r1:
-                                                val = r.group(0)
-                                                i = intron(val, a[:a.index(val)], False)
-                                                e.introns.append(i)
-                                                break
+                                    for a in args:
+                                        r1 = regex.finditer('\w+$', a)
+                                        for r in r1:
+                                            val = r.group(0)
+                                            i = intron(val, a[:a.index(val)], False)
+                                            e.introns.append(i)
+                                            break
                                             #
                                             #print(i.type, i.name)
 
-                                        g.exons.append(e)
+                                    g.exons.append(e)
 
                                         #if "__strlen_g" in v:
                                         #print(v,result.group(0))
@@ -1261,24 +1253,34 @@ def scan_mutants(line, serached_dir, mutations):
 
                                     r1 = regex.finditer('{(?:[^{}]+|(?R))*+}', file_text)
                                     result = re.search(v+'[\S\s\n]*?(?=\{)', file_text)
+                                    #check to remove funct header
+                                    result2 = re.search(v+'[\S\s\n]*?(?=;)', file_text)
+
+                                    if result2 and result2.start()==0:
+                                        if not result or len(result.group(0)) > len(result2.group(0)):     
+                                            if "memcpy" in v:
+                                                print("Success!")                  
+                                            file_text = file_text[len(result2.group(0))+1:]
+                                            result = None
 
                                     if result:
                                         val = result.group(0)
                                         for r in r1:
                                             if r.start() == len(val):
+                                                if "memcpy" in v:
+                                                    print("ERROR")
                                                 file_text = file_text[r.start() + len(r.group(0)):]
                                             break
-                                         
+
+                                elif "#" in val:
+                                    file_text = file_text[file_text.index('\n'):]
+                                    continue
+
                # print(prevfiletext)
                 #if "\n" in prevfiletext:
                 #    prevfiletext = prevfiletext[prevfiletext.rindex("\n"):]
-                if v+'(' in file_text and file_text.index(v+'(') == 0: 
-                    #check to remove funct header
-                    result = re.search(v+'\(.*;', file_text)
-                    if result:
-                        file_text = file_text[result.start() + len(result.group(0)):]
-                    else:
-                        file_text = file_text[len(v+'('):]
+                if v+'(' in file_text and file_text.index(v+'(') == 0:    
+                    file_text = file_text[len(v+'('):]
             else:
                 break
         
@@ -1324,17 +1326,51 @@ for g in genes:
         print("gcc call failed sourcing mutations!")
         exit()
 
-for m in mutations:
-    print(m.name)
-    for e in m.exons:
-        if e.expression != "":
-            val = e.expression + " "+e.name + "("
-            for i in e.introns:
-                val += i.type + i.name
-                if i != e.introns[-1]:
-                    val += ", "
-            val += ");"
-            print(val)
+def resolve_mutations(mutations):
+
+    # get rid of unresolved mutations
+    mutationcount = 0
+    for m in mutations:
+        for e in m.exons:
+            if e.expression == "":
+                
+                m.exons.remove(e)
+            else:
+                mutationcount += 1
+
+    print("Total mutations:", mutationcount)
+        # resolve the types
+
+    for m in mutations:
+        for e in m.exons:
+            for m1 in mutations:
+                for i in m1.introns:
+                    if "strlen" in e.name:
+                        print("STRLEN!")
+
+                    if e.expression in i.type:
+                        if "size_t" == i.name:
+                            print("SIZE T !!! ", i.type)
+                            break
+
+    return mutations
+
+mutations = resolve_mutations(mutations)
+
+#for m in mutations:
+#    print(m.name)
+#    for e in m.exons:
+#        if e.expression != "":
+#            val = e.expression + " "+e.name + "("
+#            for i in e.introns:
+#                val += i.type + i.name
+#                if i != e.introns[-1]:
+#                    val += ", "
+#            val += ");"
+#            print(val)
+
+
+
 
 def filter_mutations(type, mutations):
 
@@ -1345,8 +1381,16 @@ def filter_mutations(type, mutations):
         for e in m.exons:
 
             # allow exact type matches or all if no exon expression is defined 
-            if type == "" or type == e.expression:
+            if type == "" or type in e.expression:
                 g.exons.append(e)
+            else:
+                # further resolve the type string to find a connection size_T->int
+                for m1 in mutations:
+                    for i in m1.introns:
+                        if e.expression in i.type:
+                            if "size_t" in i.type:
+                                print("SIZE T !!! ", i.name)
+                                break
 
         if len(g.exons)>0:
             applicable_mutations.append(g)
@@ -1369,6 +1413,9 @@ def gen_base_mutations(genes, mutations, exon_execution_limit):
                     print("Unable to find mutations for: " + e.name)
                     exit()
 
+               # if e.name == "Length":
+               #     print(e.name, len(applicable_mutations))
+
                 exe = execution("")
                 e.executions.append(exe)
                 count+=1
@@ -1383,7 +1430,7 @@ while True:
         
     #generate individual with base mutation
     if index < 1:#p.half_limit() != True:
-         base_genes = gen_base_mutations(genes, mutations, 5)
+         #base_genes = gen_base_mutations(genes, mutations, 5)
          print("Successfully executed base mutations")
 #        fitness = gen_genes(genes, "population/mutant"+str(index), True)
 #        t = threading.Thread(name="mutant"+str(index), target=individual, args=("population/mutant"+str(index),fitness, genes,))
