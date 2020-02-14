@@ -21,6 +21,7 @@ class execution(object):
     def __init__(self, name):
         self.intron = None
         self.exon = None
+        self.includes = [] # the required includes to perform this execution
 
 # represents a gene function
 class exon(object):
@@ -1024,8 +1025,8 @@ def scan_mutants(line, serached_dir, mutations):
         if ".mod" in filename:
             continue
 
-        #if "string.h" not in filename: #and "stddef.h" not in filename:
-        #    continue
+       #    if "string.h" not in filename and "stddef.h" not in filename:
+       #     continue
 
         print(line+"/"+filename)
         
@@ -1336,23 +1337,42 @@ def resolve_mutations(mutations):
 
     print("Total mutations:", mutationcount)
         # resolve the types
-
     for m in mutations:
-
+        print(m.name)
         for i in m.introns:
+            
             for m1 in mutations:
                 for i1 in m1.introns:
-                    if i1.type == i.name:
-                        i1.type = i.type
+                   
+                    i1split = i1.type.split(" ")
+                    i1.type = ""
+     
+                    for word in i1split:
+                        result = re.search('\w+', word)
+                        if result and result.group(0)==i.name:
+                            i1.type += i.type + word[len(i.name):]
+                        else:
+                            i1.type += word
+                        if word != i1split[-1]:
+                            i1.type += " "
 
         for e in m.exons:
+
             for m1 in mutations:
                 for i in m1.introns:
-                    if e.expression == i.name:
-                        if "size_t" == i.name:
-                            print("SIZE T !!! ", i.type, i.name)
-                            break
 
+                    esplit = e.expression.split(" ")
+                    e.expression = ""
+     
+                    for word in esplit:
+                        result = re.search('\w+', word)
+                        if result and result.group(0)==i.name:
+                            e.expression += i.type + word[len(i.name):]
+                        else:
+                            e.expression += word
+                        if word != esplit[-1]:
+                            e.expression += " "
+                            
     return mutations
 
 mutations = resolve_mutations(mutations)
@@ -1383,14 +1403,6 @@ def filter_mutations(type, mutations):
             # allow exact type matches or all if no exon expression is defined 
             if type == "" or type in e.expression:
                 g.exons.append(e)
-            else:
-                # further resolve the type string to find a connection size_T->int
-                for m1 in mutations:
-                    for i in m1.introns:
-                        if e.expression in i.type:
-                            if "size_t" in i.type:
-                                print("SIZE T !!! ", i.name)
-                                break
 
         if len(g.exons)>0:
             applicable_mutations.append(g)
@@ -1403,20 +1415,39 @@ def gen_base_mutations(genes, mutations, exon_execution_limit):
     mutant_genes = genes
     for g in mutant_genes:
         for e in g.exons:
-            execution_limit = random.randint(0, exon_execution_limit)
+
+            execution_limit = random.randint(1, exon_execution_limit)
 
             count = 0
             while count < execution_limit:
-                applicable_mutations = filter_mutations(e.expression, mutations)
+                if count == execution_limit-1 and e.expression != "void": # last line is a return
+                    applicable_mutations = filter_mutations(e.expression, mutations)
+                else:
+                    applicable_mutations = filter_mutations("", mutations)
 
                 if len(applicable_mutations) == 0:
                     print("Unable to find mutations for: " + e.name)
                     exit()
 
-               # if e.name == "Length":
-               #     print(e.name, len(applicable_mutations))
+                exe = execution("") # TBD define C++ if/else/while etc.
+                index = random.randint(0, (len(applicable_mutations)-1))
+                exe.exon = applicable_mutations[index].exons[random.randint(0, (len(applicable_mutations[index].exons)-1))]
+                exe.includes.append(applicable_mutations[index].name)
 
-                exe = execution("")
+                # resolve the exon args
+                for i in exe.exon.introns:
+                    applicable_mutations = []
+                    # scan introns of current gene as an options 
+                    for g2 in mutant_genes:
+                        for i2 in g2.introns:
+                            if i2.type == i.type:# check here if from another gene to access directly as static?
+                                if len(applicable_mutations) == 0 or applicable_mutations[-1].name != g2.name:
+                                    applicable_mutations.append(gene(g2.name))
+                                applicable_mutations[-1].introns.append(i2)
+
+                    if len (applicable_mutations) == 0:
+                        print("Could not find existing intron creating......")
+
                 e.executions.append(exe)
                 count+=1
 
@@ -1430,7 +1461,8 @@ while True:
         
     #generate individual with base mutation
     if index < 1:#p.half_limit() != True:
-         #base_genes = gen_base_mutations(genes, mutations, 5)
+         print("generating base mutations!")
+         base_genes = gen_base_mutations(genes, mutations, 1)
          print("Successfully executed base mutations")
 #        fitness = gen_genes(genes, "population/mutant"+str(index), True)
 #        t = threading.Thread(name="mutant"+str(index), target=individual, args=("population/mutant"+str(index),fitness, genes,))
