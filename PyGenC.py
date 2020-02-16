@@ -21,7 +21,7 @@ class execution(object):
     def __init__(self, name):
         self.intron = None
         self.exon = None
-        self.includes = [] # the required includes to perform this execution
+        self.includes = []
 
 # represents a gene function
 class exon(object):
@@ -38,12 +38,14 @@ class exon(object):
         self.public = False
         self.definition = ""
         self.executions = []
+        self.gene = ""
 
     def resolve_executions(self):
+
         self.definition = ""
         includes = []
         for e in self.executions:
-            if e == self.executions[-1] and self.expression != "void" and self.expression != "":#return
+            if e == self.executions[-1] and self.expression != "void" and self.expression != "" and self.name != "return":#return
                 self.definition += "  return"
             self.definition += "  "+e.exon.name + "("
 
@@ -52,8 +54,19 @@ class exon(object):
                 self.definition += i.name
                 if count != len(e.exon.introns)-1:
                     self.definition += ", "
-                count+=1
-            self.definition += ");\n"
+                count+=1    
+            self.definition += ")"
+
+            # check sub exons
+            for s in e.exon.sub_exons:
+                if s == e.exon.sub_exons[0]:
+                    self.definition += " {\n"
+                if s == e.exon.sub_exons[-1]:
+                    self.definition += "}\n"
+
+            if len(e.exon.sub_exons) == 0:
+                self.definition += ";\n"
+
             includes.extend(e.includes)
         return includes
 
@@ -1501,24 +1514,6 @@ def compare_exons(e1, e2):
                 return False
     return True
 
-def get_intron_name(name, g):
-    typename = ""
-    index = 0
-    indexfound = True
-    while indexfound:
-        indexfound = False
-        for i in g.introns:
-            if (i.name == memprfx+name+memsfx and index == 0) or i.name == memprfx+name+memsfx+str(index):
-                index += 1
-                indexfound = True
-                break
-
-    if index == 0:
-        typename = memprfx+name[0].lower()+name[1:]+memsfx
-    else:
-        typename = memprfx+name[0].lower()+name[1:]+memsfx+str(index)
-    return typename
-
 def get_exon_hash(exon):
 
     hash = exon.name[0]
@@ -1542,9 +1537,7 @@ def get_exon_hash(exon):
     return hash
     
 def filter_introns(exon, mutant_genes, e, g, recursion):
-
     
-
     resolved_introns = []
     for i in exon.introns:
         applicable_mutations = []
@@ -1648,12 +1641,13 @@ def filter_introns(exon, mutant_genes, e, g, recursion):
         resolved_i = applicable_introns[random.randint(0, (len(applicable_introns)-1))]
 
         if resolved_i.name == "$new$": # create new intron for the gene (naming problem should we allow making more than 1 var? too expensive!)
-            g.introns.append(intron(get_intron_name(e.name, g), resolved_i.type, False))
+            g.introns.append(intron(memprfx + e.name + i.name + memsfx, resolved_i.type, False))
             resolved_i = g.introns[-1]
 
         resolved_introns.append(resolved_i)
 
     return resolved_introns
+    
 
 # generate base mutations
 def gen_base_mutations(genes, mutations, exon_execution_limit):
@@ -1709,6 +1703,8 @@ def gen_base_mutations(genes, mutations, exon_execution_limit):
 
                 applicable_exons = []
                 for a in applicable_mutations:
+                    for e2 in a.exons:
+                        e2.gene = a.name
                     applicable_exons.extend(a.exons)
 
                                        # check the introns of current gene for a direct exon return
@@ -1718,27 +1714,20 @@ def gen_base_mutations(genes, mutations, exon_execution_limit):
                             return_exon = exon("return")
                             return_exon.introns.append(i)
                             applicable_exons.append(return_exon)
-                            print("Adding return exon!", e.name)
+
+                if_exon = exon("if")
+                # resolve introns if selected!
+                applicable_exons.append(if_exon)
 
                 if len(applicable_exons) == 0:
                     print("Unable to find mutations for: " + e.name)
                     exit()
 
-               #if g.name == e.name and len(e.introns) == 1 and g.name in e.introns[0].type:
-               #     print(g.name)
-               #     for a in applicable_exons:
-               #         print(a.name)
-
                 exe = execution("") # TBD define C++ if/else/while etc.
                 selected_exon = applicable_exons[random.randint(0, (len(applicable_exons)-1))]
-                if selected_exon.name == "return":
-                    print("return!!", e.name)
 
-                if e.name == "c_string":
-                    for test in applicable_exons:
-                        print(test.name)
 
-                exe.includes.append(applicable_mutations[index].name)
+                exe.includes.append(selected_exon.gene)
 
                 # resolve the exon args
                 
@@ -1764,6 +1753,8 @@ while True:
          base_genes = gen_base_mutations(genes, mutations, 1)
          gen_genes(base_genes, "population/mutant"+str(index))
          compile_repo("population/mutant"+str(index), base_genes)
+         cmakeCmd = "./population/mutant"+str(index)+"/executeTests"
+         os.system(cmakeCmd)
          print("Successfully executed base mutations")
 #        fitness = gen_genes(genes, "population/mutant"+str(index), True)
 #        t = threading.Thread(name="mutant"+str(index), target=individual, args=("population/mutant"+str(index),fitness, genes,))
