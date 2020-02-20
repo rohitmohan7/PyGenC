@@ -45,7 +45,12 @@ class exon(object):
         includes = []
 
         for e in self.executions:
-            self.definition += depth+e.exon.name + " ("
+            
+            self.definition += depth
+            if e.intron != None:
+                self.definition += e.intron.name + " = "
+
+            self.definition += e.exon.name + " ("
 
             count = 0
             for i in e.exon.introns:
@@ -269,6 +274,8 @@ def getdefaultfromtype(type):
         return "0.0f"
     if "double" in type:
         return "0"
+    if "void" == type:
+        return "void"
 
     return ""
 
@@ -1504,8 +1511,8 @@ for m in mutations:
                 type_pool.append(i.type)
 
 type_pool = list(dict.fromkeys(type_pool))
-if "" in type_pool:
-    type_pool.remove("")
+#if "" in type_pool:
+#    type_pool.remove("")
 
 # filter type pool
 
@@ -1520,9 +1527,6 @@ if "" in type_pool:
 #                    val += ", "
 #            val += ");"
 #            print(val)
-
-
-
 
 def filter_mutations(type, mutations):
 
@@ -1592,12 +1596,37 @@ def get_exon_hash(exon):
             hash += "ref"
         hash += i.name[0]
     return hash
+
+
+def get_type_hash(type): # variable created of same type from same function must have a typehash to prevent duplicate?
+
+    hash = ""
+
+    isplit = type.split(" ")
+    for word in isplit:
+        if len(word)>0:
+            hash += word[0]
+        count = 0
+    while count < type.count("*"):
+        hash += "ptr"
+        count += 1
+
+    if "&" in type:
+        hash += "ref"
+
+    hash = hash.replace("*","")
+
+    return hash
     
 def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_limit):
     
     resolved_introns = []
     count = 0
     for i in exon_.introns:
+        searchexons_ = searchexons
+
+        if i.type == "void":
+            searchexons_ = False
 
         applicable_mutations = []
         
@@ -1607,9 +1636,11 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
             # scan introns of current gene as an options 
             for i2 in g2.introns:
                 if function_input_typematch(i2.type, i.type) == True: # TBD, resolve other genes
-                    curr_gene.introns.append(i2)
+                    curr_gene.introns.append(intron(i2.name, i2.type, False))
 
                         # scan exons of current gene as options, TBD resolve args! chain?
+
+            
             for e2 in g2.exons:
 
                             # scane introns for current funct
@@ -1619,7 +1650,7 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
                         
 
                         if function_input_typematch(i2.type, i.type) == True:
-                            curr_gene.introns.append(i2)
+                            curr_gene.introns.append(intron(i2.name, i2.type, False))
                         else:
                             
                             # check if an instance, if so check all functions of instance
@@ -1635,26 +1666,27 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
                                         if g3.name == result.group(0):
                                             
                                             # check exons
-                                            for e3 in g3.exons:
-                                               
-                                                if function_input_typematch(e3.expression, i.type) == True:
-                                                    # arguments must be resolved and should
+                                            if searchexons_:
+                                                for e3 in g3.exons:
+                                                
+                                                    if function_input_typematch(e3.expression, i.type) == True:
+                                                        # arguments must be resolved and should
 
-                                                    exon_introns = filter_introns(e3, mutant_genes, e, g, recursion, True, execution_limit)
-                                                    conversion = ""
-                                                    if i2.type.count("*")==0:
-                                                        conversion = "."
-                                                    elif i2.type.count("*")==1:
-                                                        conversion = "->" 
+                                                        exon_introns = filter_introns(e3, mutant_genes, e, g, recursion, True, execution_limit)
+                                                        conversion = ""
+                                                        if i2.type.count("*")==0:
+                                                            conversion = "."
+                                                        elif i2.type.count("*")==1:
+                                                            conversion = "->" 
 
-                                                    name = i2.name + conversion + e3.name + "("
-                                                    for i in exon_introns:
-                                                        name += i.name
-                                                        if i != exon_introns[-1]:
-                                                            name += ", "
-                                                    name += ")"
+                                                        name = i2.name + conversion + e3.name + "("
+                                                        for i in exon_introns:
+                                                            name += i.name
+                                                            if i != exon_introns[-1]:
+                                                                name += ", "
+                                                        name += ")"
                                       
-                                                    curr_gene.introns.append(intron(name, e3.expression, False))
+                                                        curr_gene.introns.append(intron(name, e3.expression, False))
 
                                             # check introns ?
                                             for i3 in g3.introns:
@@ -1672,34 +1704,36 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
                                    
 
                 # allow for recursion ?
-                if function_input_typematch(e2.expression, i.type) == True and exon_.name != "delete []":
+                if function_input_typematch(e2.expression, i.type) == True and exon_.name != "delete []" and searchexons_:
                     if recursion == False or g2.name != g.name or compare_exons(e, e2) == False:
                         
                         exon_introns = filter_introns(e2, mutant_genes, e, g, recursion, True, execution_limit)
                         name = e2.name + "("
-                        for i in exon_introns:
-                            name += i.name
-                            if i != exon_introns[-1]:
+                        for i2 in exon_introns:
+                            name += i2.name
+                            if i2 != exon_introns[-1]:
                                 name += ", "
                         name += ")"
                         curr_gene.introns.append(intron(name, e2.expression, False))
                     # make an exe if selected TBD
                     #curr_gene.introns.append(intron("$exe$"+e2.name,"", False))
-
-            # check previous exes for chaining!
-            for ex in e.executions: # check for const qualifier ? 
-                if function_input_typematch(ex.exon.expression, i.type) == True:
-                    curr_gene.introns.append(intron("$exe$"+ex.exon.name,"", False))
-
+                
             if len(curr_gene.introns) > 0:
                 applicable_mutations.append(curr_gene)
 
         applicable_introns = []
+
+        # check previous exes for chaining!
+        for ex in e.executions: # check for const qualifier ? 
+           # if function_input_typematch(ex.exon.expression, i.type) == True:
+           #     curr_gene.introns.append(intron("$exe$"+ex.exon.name,"", False))
+             if ex.intron and function_input_typematch(ex.intron.type, i.type) == True: # map local intron for an execution/input
+                curr_gene.introns.append(intron(ex.intron.type, i.type, False))
         
         for a in applicable_mutations:
             applicable_introns.extend(a.introns)
 
-        if len(applicable_introns) == 0 and exon_.name != "delete []": # only create if there are none ? check if var type already exists maybe?
+        if len(applicable_introns) == 0 and exon_.name != "delete []" and i.type != "void": # only create if there are none ? check if var type already exists maybe?
             applicable_introns.append(intron("$new$", i.type, False))
 
         applicable_exons = filter_exons(False, i.type, e, g, exon_, True) # dont allow recursion
@@ -1712,13 +1746,20 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
             applicable_introns.append(intron(getdefaultfromtype(i.type), i.type, False))
 
         # convert exons to introns
-        if len(applicable_exons) > 0 and searchexons and exon_.name != "delete []":
+        if len(applicable_exons) > 0 and searchexons_ and exon_.name != "delete []": # disable void function calls in if/return
             applicable_introns.append(intron("$exon$", "", False))
+
+        # make none as an option!
+        if exon_.name == "":
+            applicable_introns.append(intron("$none$", "", False))
 
         resolved_i = applicable_introns[random.randint(0, (len(applicable_introns)-1))]
 
+        if e.name == "Set" and exon_.name == "return":
+            print("Hi From set return resolve i!", len(applicable_introns), getdefaultfromtype(i.type), i.type)
+
         if e.name == "Length" and exon_.name == "if" and count == 1:
-            print("Length override! IF 2")
+            #print("Length override! IF 2")
             for a in applicable_introns:
                 if a.name == "nullptr":
                     resolved_i = a
@@ -1729,7 +1770,7 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
             for a in applicable_introns:
                 if "kHelloString" == a.name:
                     resolved_i = a
-                    print("Set override! IF 1", resolved_i.name)
+                    #print("Set override! IF 1", resolved_i.name)
                     break
 
         if e.name == "Set" and exon_.name == "if" and count == 0:
@@ -1737,14 +1778,14 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
             for a in applicable_introns:
                 if "kHelloString" == a.name:
                     resolved_i = a
-                    print("Set override! IF 1", resolved_i.name)
+                   # print("Set override! IF 1", resolved_i.name)
                     break
 
         if e.name == "Set" and exon_.name == "if" and count == 1:
             
             for a in applicable_introns:
                 if a.name == "nullptr":
-                    print("Set override! IF 2")
+               #     print("Set override! IF 2")
                     resolved_i = a
                     break
 
@@ -1752,7 +1793,7 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
             
             for a in applicable_introns:
                 if a.name == "c_string_":
-                    print("Set override! IF 2")
+                #    print("Set override! IF 2")
                     resolved_i = a
                     break
 
@@ -1761,14 +1802,13 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
             
             for a in applicable_introns:
                 if a.name == "0":
-                    print("Length override! return 1",  execution_limit)
+                 #   print("Length override! return 1",  execution_limit)
                     resolved_i = a
                     break
 
         
-
         if e.name == "Length" and exon_.name == "if" and count == 0:
-            print("Length override! IF 1")
+           # print("Length override! IF 1")
             for a in applicable_introns:
                 if a.name == "c_string_":
                     resolved_i = a
@@ -1778,32 +1818,39 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
             for a in applicable_introns:
                 if a.name == "$new$":
                     resolved_i = a
-                    print("C STRING OVERRIDE!")
+            #        print("C STRING OVERRIDE!")
                     break
 
         if e.name == g.name and len(e.introns) == 1 and g.name in e.introns[0].type: #copy construct
             for a in applicable_introns:
                 if "rhs" in a.name:
                     resolved_i = a
-                    print("C'py Constructor OVERRIDE!")
+             #       print("C'py Constructor OVERRIDE!")
                     break
 
         elif e.name == g.name and len(e.introns) == 1:
             for a in applicable_introns:
                 if "kHelloString" in a.name:
                     resolved_i = a
-                    print("Constructor OVERRIDE!")
+              #      print("Constructor OVERRIDE!")
                     break
 
         if resolved_i.name == "$new$": # create new intron for the gene (naming problem should we allow making more than 1 var? too expensive!)
-            g.introns.append(intron(memprfx + e.name[0].lower() + e.name[1:] + i.name + memsfx, resolved_i.type, False))
-            resolved_i = g.introns[-1]
+
+            if exon_.name != "":
+                g.introns.append(intron(memprfx + e.name[0].lower() + e.name[1:] + "_"+ get_type_hash(resolved_i.type) + memsfx, resolved_i.type, False))
+
+                # validate the exon before adding to gene
+                resolved_i = g.introns[-1]
+            else:
+                # create new local var 
+                resolved_i = intron(i.type + " " + e.name[0].lower() + e.name[1:] +"_" + get_type_hash(resolved_i.type), resolved_i.type, False)
 
         if e.name == "Length" and exon_.name == "return" and execution_limit == 2:
             
             for a in applicable_introns:
                 if a.name == "$exon$":
-                    print("Length override! return 2",  execution_limit)
+               #     print("Length override! return 2",  execution_limit)
                     resolved_i = a
                     break
 
@@ -1813,7 +1860,7 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
             selected_exon = applicable_exons[index]
 
             if e.name == "Length" and exon_.name == "return" and execution_limit == 2:
-                print("Length override! return 2")
+                #print("Length override! return 2")
                 for a in applicable_exons:
                     if a.name == "strlen":
                         selected_exon = a
@@ -1831,9 +1878,10 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
 
             resolved_i = intron(name, selected_exon.expression, False)
 
+        
         # check to resolve if 
         if exon_.name == "if" and count < len(exon_.introns) - 1 and len(exon_.introns)>=2: # nesting? == && != etc...
-    
+
             i.type = resolved_i.type
             conversions = []
 
@@ -1866,6 +1914,7 @@ def filter_introns(exon_, mutant_genes, e, g, recursion, searchexons, execution_
 
             #conversion.append('<') type needs to be futher checked for this!
             #conversion.append('>')
+
 
         resolved_introns.append(resolved_i)
         count += 1
@@ -1906,11 +1955,12 @@ def filter_exons(final, type, e , g, exon_, filterRecursion):
         applicable_exons.extend(a.exons)
 
                                        # check the introns of current gene for a direct exon return
-    if final and e.expression != "":
+    if final and e.expression != "" and type == "":
         return_exon = exon("return")
-
-        if e.expression != "void":
-            return_exon.introns.append(intron("", e.expression, False)) # resolve either a funcion return of type or a member!
+        if e.name == "Set":
+            print("Set functcall", e.expression)
+        #if e.expression != "void":
+        return_exon.introns.append(intron("", e.expression, False)) # resolve either a funcion return of type or a member!
 
         applicable_exons.append(return_exon)
 
@@ -1921,7 +1971,7 @@ def filter_exons(final, type, e , g, exon_, filterRecursion):
         applicable_exons.append(if_exon)
 
     # check to add delete [] for members TBD expand!
-    if not final or e.expression == "" or exon_.name == "if": 
+    if (not final or e.expression == "" or exon_.name == "if") and type == "": 
         for i in g.introns:
             if "*" in i.type:
                 delete_exon = exon("delete []")
@@ -1929,9 +1979,9 @@ def filter_exons(final, type, e , g, exon_, filterRecursion):
                 applicable_exons.append(delete_exon)
                 break
 
-    if len(applicable_exons) == 0 and final:
-        print("Unable to find mutations for: " + e.name, e.expression, type, exon_.name)
-        exit()
+    #if len(applicable_exons) == 0:
+    #    print("Unable to find mutations for: " + e.name, e.expression, type, exon_.name, final)
+    #    exit()
 
     return applicable_exons
     
@@ -1972,7 +2022,25 @@ def generate_exe(g, e, exon_, mutations, mutant_genes, min_execution_limit, exon
     while count < execution_limit:
 
         exe = execution("") # TBD define 
-        applicable_exons = filter_exons((count == execution_limit-1), "", e, g, exon_, filterRecursion)
+
+        # variable definitions, convertions intron -> exon/intron driven by type
+        if count != execution_limit-1 or exon_.name == "if": # no point setting/defining a variable at end of function 
+            intron_exon = exon("")
+            type = type_pool[random.randint(0, len(type_pool)-1)]
+ 
+            intron_exon.introns.append(intron("", type, False))
+            applicable_introns = filter_introns(intron_exon, mutant_genes, e, g, filterRecursion, False, execution_limit)
+
+            selected_intron = applicable_introns[random.randint(0, (len(applicable_introns)-1))] # select random intron
+        else:
+            selected_intron = intron("$none$","", False)
+
+        applicable_exons = filter_exons((count == execution_limit-1), selected_intron.type, e, g, exon_, filterRecursion)
+
+        if selected_intron.name != "$none$" and len(applicable_exons) > 0:
+            exe.intron = selected_intron # check if needed to copy here ? 
+        elif selected_intron.name != "$none$":
+            applicable_exons = filter_exons((count == execution_limit-1), "", e, g, exon_, filterRecursion)
 
         selected_exon = applicable_exons[random.randint(0, (len(applicable_exons)-1))]
 
